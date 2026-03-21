@@ -2,7 +2,7 @@
 
 client_id = "7f3e2f1aede48b87a92431d17967348d"
 name = "Urban Nature Klaviyo sync"
-application_url = "https://shopify.dev/apps/default-app-home"
+application_url = "https://urban-shopify-klaviyo-sync.onrender.com"
 embedded = true
 
 [build]
@@ -24,4 +24,4 @@ api_version = "2026-04"
 scopes = "read_customers"
 
 [auth]
-redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
+redirect_urls = [ "https://urban-shopify-klaviyo-sync.onrender.com/api/auth" ]

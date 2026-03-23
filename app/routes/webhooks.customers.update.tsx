@@ -131,30 +131,69 @@ function unwrapCustomer(payload: CustomerWebhookPayload): {
   return payload;
 }
 
-async function syncPropertyToKlaviyo(params: {
-  shop: string;
+function klaviyoRevision(): string {
+  return process.env.KLAVIYO_API_REVISION?.trim() || "2024-10-15";
+}
+
+/**
+ * Find an existing Klaviyo profile by email (updates only — no profile creation).
+ * @see https://developers.klaviyo.com/en/reference/get_profiles
+ */
+async function findKlaviyoProfileIdByEmail(params: {
+  apiKey: string;
   email: string;
-  propertyName: string;
-  rawValue: string | null | undefined;
-}) {
-  const { shop, email, propertyName, rawValue } = params;
-  const apiKey = process.env.KLAVIYO_API_KEY;
-  if (!apiKey) {
-    console.error("[klaviyo-sync] KLAVIYO_API_KEY is not set");
-    return;
+}): Promise<string | null> {
+  const { apiKey, email } = params;
+  const escaped = email.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  const filter = `equals(email,"${escaped}")`;
+  const url = new URL("https://a.klaviyo.com/api/profiles/");
+  url.searchParams.set("filter", filter);
+
+  const res = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Authorization: `Klaviyo-API-Key ${apiKey}`,
+      Accept: "application/json",
+      revision: klaviyoRevision(),
+    },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    console.error(
+      `[klaviyo-sync] Klaviyo profile lookup failed status=${res.status}`,
+      text,
+    );
+    return null;
   }
 
+  const json = (await res.json()) as {
+    data?: Array<{ id?: string }>;
+  };
+  const id = json.data?.[0]?.id;
+  return id ?? null;
+}
+
+/**
+ * Merge one custom property onto an existing profile.
+ * @see https://developers.klaviyo.com/en/reference/update_profile
+ */
+async function patchKlaviyoProfileProperty(params: {
+  shop: string;
+  profileId: string;
+  propertyName: string;
+  rawValue: string | null | undefined;
+  apiKey: string;
+}): Promise<boolean> {
+  const { shop, profileId, propertyName, rawValue, apiKey } = params;
   const propertyValue =
     rawValue === null || rawValue === undefined ? "" : String(rawValue);
 
-  const revision =
-    process.env.KLAVIYO_API_REVISION?.trim() || "2024-10-15";
-
-  const klaviyoBody = {
+  const body = {
     data: {
-      type: "profile",
+      type: "profile" as const,
+      id: profileId,
       attributes: {
-        email,
         properties: {
           [propertyName]: propertyValue,
         },
@@ -162,28 +201,33 @@ async function syncPropertyToKlaviyo(params: {
     },
   };
 
-  const klaviyoRes = await fetch("https://a.klaviyo.com/api/profiles/", {
-    method: "POST",
-    headers: {
-      Authorization: `Klaviyo-API-Key ${apiKey}`,
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      revision,
+  const klaviyoRes = await fetch(
+    `https://a.klaviyo.com/api/profiles/${encodeURIComponent(profileId)}/`,
+    {
+      method: "PATCH",
+      headers: {
+        Authorization: `Klaviyo-API-Key ${apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        revision: klaviyoRevision(),
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(klaviyoBody),
-  });
+  );
 
   if (!klaviyoRes.ok) {
     const text = await klaviyoRes.text();
     console.error(
-      `[klaviyo-sync] Klaviyo API failed status=${klaviyoRes.status} shop=${shop} property="${propertyName}"`,
+      `[klaviyo-sync] Klaviyo PATCH failed status=${klaviyoRes.status} shop=${shop} property="${propertyName}"`,
       text,
     );
-  } else {
-    console.log(
-      `[klaviyo-sync] Synced Klaviyo property="${propertyName}" shop=${shop}`,
-    );
+    return false;
   }
+
+  console.log(
+    `[klaviyo-sync] Updated Klaviyo profile property="${propertyName}" shop=${shop}`,
+  );
+  return true;
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -286,6 +330,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response();
   }
 
+  const apiKey = process.env.KLAVIYO_API_KEY;
+  if (!apiKey) {
+    console.error("[klaviyo-sync] KLAVIYO_API_KEY is not set");
+    return new Response();
+  }
+
+  const profileId = await findKlaviyoProfileIdByEmail({ apiKey, email });
+  if (!profileId) {
+    console.log(
+      `[klaviyo-sync] No existing Klaviyo profile for email; skipping (updates only, no profile creation) shop=${shop}`,
+    );
+    return new Response();
+  }
+
   for (const mf of metafields) {
     const namespace = mf.namespace ?? "";
     const key = mf.key ?? "";
@@ -302,11 +360,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       continue;
     }
 
-    await syncPropertyToKlaviyo({
+    await patchKlaviyoProfileProperty({
       shop,
-      email,
+      profileId,
       propertyName,
       rawValue: mf.value,
+      apiKey,
     });
   }
 

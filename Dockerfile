@@ -5,17 +5,20 @@ EXPOSE 3000
 
 WORKDIR /app
 
-ENV NODE_ENV=production
-
 COPY package.json package-lock.json* ./
 
-RUN npm ci --omit=dev && npm cache clean --force
-# Remove CLI packages since we don't need them in production by default.
-# Remove this line if you want to run CLI commands in your container.
-RUN npm remove @shopify/cli
+# Full install (including devDependencies) required for `remix vite:build`.
+# Prefer `npm ci` when package-lock.json is committed; otherwise `npm install`.
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi \
+  && npm cache clean --force
 
 COPY . .
 
+ENV NODE_ENV=production
+
 RUN npm run build
+
+# Smaller runtime image: drop devDependencies after build
+RUN npm prune --omit=dev && npm cache clean --force
 
 CMD ["npm", "run", "docker-start"]

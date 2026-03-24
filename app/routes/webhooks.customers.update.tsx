@@ -22,6 +22,8 @@ const SILENT_UNMAPPED_KLAVIYO_KEYS = new Set([
   "First_Sale_Date_",
   "Last_Sale_Date",
   "Loyalty_Program_1",
+  "Loyalty_Program_2",
+  "Loyalty_Program_3",
   "Name",
   "Store_ID",
 ]);

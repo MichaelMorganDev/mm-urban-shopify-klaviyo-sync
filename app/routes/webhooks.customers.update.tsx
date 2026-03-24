@@ -13,6 +13,15 @@ type AdminLike = {
 const CUSTOMERS_UPDATE_TOPIC = "CUSTOMERS_UPDATE";
 
 const ALLOWED_NAMESPACES = new Set(["counterpoint", "klaviyo"]);
+const SILENT_UNMAPPED_KLAVIYO_KEYS = new Set([
+  "Customer_Number",
+  "CUST_NO",
+  "First_Sale_Date_",
+  "Last_Sale_Date",
+  "Loyalty_Program_1",
+  "Name",
+  "Store_ID",
+]);
 
 type MetafieldInPayload = {
   namespace?: string;
@@ -384,6 +393,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     const propertyName = getKlaviyoPropertyName(namespace, key);
     if (!propertyName) {
+      if (
+        namespace === "klaviyo" &&
+        SILENT_UNMAPPED_KLAVIYO_KEYS.has(key)
+      ) {
+        continue;
+      }
       console.log(
         `[klaviyo-sync] Ignoring customers/update: unmapped ${namespace}:${key} shop=${shop}`,
       );

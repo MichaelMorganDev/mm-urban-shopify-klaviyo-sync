@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@ee0669bd1cc54295c223e0bb666b733df41de1c5 # v2.7.0
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Create lock file
         run: touch yarn.lock
@@ -59,12 +59,12 @@ jobs:
 
       - name: Run ESLint
         run: |
-          yarn lint "app/**/*.{js,jsx}" ".graphqlrc.js" "vite.config.js" --fix --no-cache --ignore-pattern "\!.graphqlrc.js" --plugin @shopify/eslint-plugin --rule '{
+          yarn lint "app/**/*.{js,jsx}" "vite.config.js" --fix --no-cache --no-warn-ignored --plugin @shopify/eslint-plugin --rule '{
             "import/order": "error",
             "import/newline-after-import": "error",
             "padding-line-between-statements": ["error",
               { "blankLine": "always", "prev": ["const", "let", "var"], "next": "*"},
-              { "blankLine": "any",    "prev": ["const", "let", "var"], "next": ["const", "let", "var"]}
+              { "blankLine": "any",    "prev": ["const", "let", "var"], "next": ["const", "let", "var"]},
               { "blankLine": "always", "prev": "*", "next": "return" },
               { "blankLine": "always", "prev": "*", "next": "export" },
               { "blankLine": "never",  "prev": "export", "next": "export" },

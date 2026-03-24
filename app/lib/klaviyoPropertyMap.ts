@@ -9,6 +9,7 @@ const SHOPIFY_METAFIELD_TO_KLAVIYO_PROPERTY: Record<string, string> = {
   "counterpoint:CustomerCateg": "Customer Category",
   "counterpoint:CustomerNumber": "Customer Number",
   "counterpoint:Email": "Email",
+  "counterpoint:email": "Email",
   "counterpoint:FirstSaleDate": "First Sale Date ",
   "counterpoint:LastSaleDate": "Last Sale Date",
   "counterpoint:Name": "Name",

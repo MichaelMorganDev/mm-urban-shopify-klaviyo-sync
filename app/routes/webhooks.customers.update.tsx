@@ -292,6 +292,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const customer = unwrapCustomer(payload as CustomerWebhookPayload);
   let metafields: MetafieldInPayload[] = [...(customer.metafields ?? [])];
+  let hasFullMetafieldSnapshot = metafields.length > 0;
 
   let email =
     typeof customer.email === "string" ? customer.email.trim() || null : null;
@@ -335,6 +336,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     );
     const fetched = await fetchMetafieldsAndEmailFromAdmin(adminApi, ownerId);
     metafields = fetched.metafields;
+    hasFullMetafieldSnapshot = true;
     if (!email && fetched.email) {
       email = fetched.email;
     }
@@ -437,25 +439,31 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
   }
 
-  for (const mappedKey of MAPPED_SHOPIFY_KEYS) {
-    if (seenMappedKeys.has(mappedKey)) {
-      continue;
+  if (hasFullMetafieldSnapshot) {
+    for (const mappedKey of MAPPED_SHOPIFY_KEYS) {
+      if (seenMappedKeys.has(mappedKey)) {
+        continue;
+      }
+      const [namespace, key] = mappedKey.split(":");
+      if (!namespace || !key) {
+        continue;
+      }
+      if (!ALLOWED_NAMESPACES.has(namespace)) {
+        continue;
+      }
+      const propertyName = getKlaviyoPropertyName(namespace, key);
+      if (!propertyName) {
+        continue;
+      }
+      if (setProperties[propertyName] !== undefined) {
+        continue;
+      }
+      unsetProperties.push(propertyName);
     }
-    const [namespace, key] = mappedKey.split(":");
-    if (!namespace || !key) {
-      continue;
-    }
-    if (!ALLOWED_NAMESPACES.has(namespace)) {
-      continue;
-    }
-    const propertyName = getKlaviyoPropertyName(namespace, key);
-    if (!propertyName) {
-      continue;
-    }
-    if (setProperties[propertyName] !== undefined) {
-      continue;
-    }
-    unsetProperties.push(propertyName);
+  } else {
+    console.log(
+      `[klaviyo-sync] Partial webhook metafields payload; skipping missing-key unsets shop=${shop}`,
+    );
   }
 
   await patchKlaviyoProfileProperties({

@@ -152,6 +152,10 @@ function klaviyoRevision(): string {
   return process.env.KLAVIYO_API_REVISION?.trim() || "2024-10-15";
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Find an existing Klaviyo profile by email (updates only — no profile creation).
  * @see https://developers.klaviyo.com/en/reference/get_profiles
@@ -191,38 +195,33 @@ async function findKlaviyoProfileIdByEmail(params: {
   return id ?? null;
 }
 
-/**
- * Merge one custom property onto an existing profile.
- * @see https://developers.klaviyo.com/en/reference/update_profile
- */
-async function patchKlaviyoProfileProperty(params: {
+async function patchKlaviyoProfileProperties(params: {
   shop: string;
   profileId: string;
-  propertyName: string;
-  rawValue: string | null | undefined;
+  setProperties: Record<string, string>;
+  unsetProperties: string[];
   apiKey: string;
 }): Promise<boolean> {
-  const { shop, profileId, propertyName, rawValue, apiKey } = params;
-  const propertyValue =
-    rawValue === null || rawValue === undefined ? "" : String(rawValue);
-  const shouldUnset = propertyValue.trim().length === 0;
+  const { shop, profileId, setProperties, unsetProperties, apiKey } = params;
+  if (Object.keys(setProperties).length === 0 && unsetProperties.length === 0) {
+    return true;
+  }
 
   const body: Record<string, unknown> = {
     data: {
       type: "profile",
       id: profileId,
-      attributes: shouldUnset
-        ? {}
-        : {
-            properties: {
-              [propertyName]: propertyValue,
-            },
-          },
-      ...(shouldUnset
+      attributes:
+        Object.keys(setProperties).length > 0
+          ? {
+              properties: setProperties,
+            }
+          : {},
+      ...(unsetProperties.length > 0
         ? {
             meta: {
               patch_properties: {
-                unset: [propertyName],
+                unset: unsetProperties,
               },
             },
           }
@@ -230,35 +229,51 @@ async function patchKlaviyoProfileProperty(params: {
     },
   };
 
-  const action = shouldUnset ? "Unset" : "Updated";
-
-  const klaviyoRes = await fetch(
-    `https://a.klaviyo.com/api/profiles/${encodeURIComponent(profileId)}/`,
-    {
-      method: "PATCH",
-      headers: {
-        Authorization: `Klaviyo-API-Key ${apiKey}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        revision: klaviyoRevision(),
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const klaviyoRes = await fetch(
+      `https://a.klaviyo.com/api/profiles/${encodeURIComponent(profileId)}/`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Klaviyo-API-Key ${apiKey}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          revision: klaviyoRevision(),
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    },
-  );
+    );
 
-  if (!klaviyoRes.ok) {
+    if (klaviyoRes.ok) {
+      console.log(
+        `[klaviyo-sync] Patched Klaviyo profile shop=${shop} set=${Object.keys(setProperties).length} unset=${unsetProperties.length}`,
+      );
+      return true;
+    }
+
     const text = await klaviyoRes.text();
+    if (klaviyoRes.status === 429 && attempt < 3) {
+      const retryAfterHeader = klaviyoRes.headers.get("retry-after");
+      const retryAfterMs = Number(retryAfterHeader);
+      const waitMs =
+        Number.isFinite(retryAfterMs) && retryAfterMs > 0
+          ? retryAfterMs * 1000
+          : attempt * 1000;
+      console.warn(
+        `[klaviyo-sync] Klaviyo throttled (attempt ${attempt}/3), retrying in ${waitMs}ms shop=${shop}`,
+      );
+      await sleep(waitMs);
+      continue;
+    }
+
     console.error(
-      `[klaviyo-sync] Klaviyo PATCH failed status=${klaviyoRes.status} shop=${shop} property="${propertyName}" action=${action.toLowerCase()}`,
+      `[klaviyo-sync] Klaviyo PATCH failed status=${klaviyoRes.status} shop=${shop} set=${Object.keys(setProperties).length} unset=${unsetProperties.length}`,
       text,
     );
     return false;
   }
 
-  console.log(
-    `[klaviyo-sync] ${action} Klaviyo profile property="${propertyName}" shop=${shop}`,
-  );
-  return true;
+  return false;
 }
 
 export const action = async ({ request }: ActionFunctionArgs) => {
@@ -383,6 +398,9 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return new Response();
   }
 
+  const setProperties: Record<string, string> = {};
+  const unsetProperties: string[] = [];
+
   for (const mf of metafields) {
     const namespace = mf.namespace ?? "";
     const key = mf.key ?? "";
@@ -405,14 +423,21 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       continue;
     }
 
-    await patchKlaviyoProfileProperty({
-      shop,
-      profileId,
-      propertyName,
-      rawValue: mf.value,
-      apiKey,
-    });
+    const raw = mf.value === null || mf.value === undefined ? "" : String(mf.value);
+    if (raw.trim().length === 0) {
+      unsetProperties.push(propertyName);
+    } else {
+      setProperties[propertyName] = raw;
+    }
   }
+
+  await patchKlaviyoProfileProperties({
+    shop,
+    profileId,
+    setProperties,
+    unsetProperties,
+    apiKey,
+  });
 
   return new Response();
 };

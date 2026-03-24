@@ -131,6 +131,14 @@ function unwrapCustomer(payload: CustomerWebhookPayload): {
   return payload;
 }
 
+function isMissingOfflineSessionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "SessionNotFoundError" ||
+    error.message.includes("Could not find a session for shop")
+  );
+}
+
 function klaviyoRevision(): string {
   return process.env.KLAVIYO_API_REVISION?.trim() || "2024-10-15";
 }
@@ -258,10 +266,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       const ctx = await unauthenticated.admin(shop);
       adminApi = ctx.admin;
     } catch (error) {
-      console.warn(
-        `[klaviyo-sync] No Admin API context (session=${session ? "present" : "missing"}) shop=${shop}`,
-        error,
-      );
+      if (isMissingOfflineSessionError(error)) {
+        console.warn(
+          `[klaviyo-sync] No offline session for shop=${shop} (needed when webhooks omit metafields). ` +
+            `Use a persistent DATABASE_URL (e.g. Render Postgres), run prisma migrate deploy on deploy, ` +
+            `then open the app once in Admin to store the offline access token.`,
+        );
+      } else {
+        console.warn(
+          `[klaviyo-sync] No Admin API context (session=${session ? "present" : "missing"}) shop=${shop}`,
+          error,
+        );
+      }
     }
   }
 

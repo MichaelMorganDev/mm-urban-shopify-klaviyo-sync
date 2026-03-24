@@ -49,8 +49,11 @@ shopify app dev
 
 | Variable | Required | Description |
 | -------- | -------- | ----------- |
+| `DATABASE_URL` | Yes | **PostgreSQL** connection string for Prisma (stores Shopify **offline sessions**). Without a persistent DB, sessions disappear on redeploy and webhooks lose Admin API access. |
 | `KLAVIYO_API_KEY` | Yes (for sync) | Klaviyo private API key |
 | `KLAVIYO_API_REVISION` | No | Klaviyo API revision header (default `2024-10-15`) |
+
+Local DB: `docker compose up -d` then `DATABASE_URL=postgresql://postgres:postgres@localhost:5432/shopify_app` (see [`.env.example`](.env.example)). Run `npm run setup` (or `prisma migrate deploy`) after changing `DATABASE_URL`.
 
 Configure these in your hosting environment or via `shopify app env` / Partner Dashboard as you prefer. If `KLAVIYO_API_KEY` is missing, the webhook still returns `200` and logs an error.
 
@@ -65,7 +68,7 @@ Configure these in your hosting environment or via `shopify app env` / Partner D
 
 1. **Watch server logs** for `[klaviyo-sync]`. No lines usually means Shopify isn’t reaching your app (URL/tunnel) or the webhook isn’t registered.
 2. **Partner Dashboard → your app → Insights → Webhooks** — check `CUSTOMERS_UPDATE` deliveries and HTTP **200**.
-3. **Open the embedded app once** in that store after install so `afterAuth` registers webhooks and an **offline session** exists (required for the Admin API fallback when the webhook has no inline metafields).
+3. **Offline session in Postgres** — `SessionNotFoundError` / “Could not find a session for shop …” means there is no row for that shop (or the DB was wiped). Use a **persistent** `DATABASE_URL` (e.g. **Render Postgres**), ensure `prisma migrate deploy` runs on boot (`npm run docker-start` does this), then **open the embedded app once** in that store so OAuth stores the offline token. Re-open after long downtime if needed.
 4. Namespace + key must match [`klaviyoPropertyMap.ts`](app/lib/klaviyoPropertyMap.ts) (e.g. `counterpoint` / `LastSaleDate`).
 5. Set **`KLAVIYO_API_KEY`** in the same environment as the running process (local `.env` or host).
 
@@ -74,7 +77,7 @@ Configure these in your hosting environment or via `shopify app env` / Partner D
 | Area | Notes |
 | ---- | ----- |
 | Hosting | App on HTTPS at `SHOPIFY_APP_URL`; dev tunnel alone isn’t production. |
-| Database | SQLite is fine for one server; use a hosted DB if you run multiple instances. |
+| Database | **PostgreSQL** with persistent storage (required for Docker/Render so sessions survive redeploys). |
 | Secrets | `SHOPIFY_API_KEY`, `SHOPIFY_API_SECRET`, `KLAVIYO_API_KEY`, plus any session/crypto vars your host needs. |
 | Shopify | `shopify app deploy` so URLs/scopes match; merchants may need to re-approve after scope changes. |
 
@@ -120,11 +123,10 @@ Please read the [documentation for @shopify/shopify-app-remix](https://www.npmjs
 
 ### Application Storage
 
-This template uses [Prisma](https://www.prisma.io/) to store session data, by default using an [SQLite](https://www.sqlite.org/index.html) database.
-The database is defined as a Prisma schema in `prisma/schema.prisma`.
+This app uses [Prisma](https://www.prisma.io/) with **PostgreSQL** (`DATABASE_URL` in `prisma/schema.prisma`) so **offline sessions survive Docker/Render redeploys**. SQLite on ephemeral disks loses sessions after each deploy, which breaks the Admin API fallback for `CUSTOMERS_UPDATE`.
 
-This use of SQLite works in production if your app runs as a single instance.
-The database that works best for you depends on the data your app needs and how it is queried.
+For local development, run Postgres via [`docker-compose.yml`](docker-compose.yml) and set `DATABASE_URL` as in [`.env.example`](.env.example).
+
 You can run your database of choice on a server yourself or host it with a SaaS company.
 Here's a short list of databases providers that provide a free tier to get started:
 
@@ -193,13 +195,7 @@ export default defineConfig({
 
 ### Database tables don't exist
 
-If you get this error:
-
-```
-The table `main.Session` does not exist in the current database.
-```
-
-You need to create the database for Prisma. Run the `setup` script in `package.json` using your preferred package manager.
+If Prisma reports that the `Session` table is missing, ensure `DATABASE_URL` points at your Postgres instance, then run `npm run setup` (or `npx prisma migrate deploy`) to apply migrations.
 
 ### Navigating/redirecting breaks an embedded app
 

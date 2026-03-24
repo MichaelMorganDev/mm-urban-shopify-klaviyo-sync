@@ -1,0 +1,17 @@
+# Local Postgres for Prisma Session storage (offline access tokens).
+# Run: docker compose up -d
+# Then set DATABASE_URL=postgresql://postgres:postgres@localhost:5432/shopify_app
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: shopify_app
+    volumes:
+      - shopify_app_pg:/var/lib/postgresql/data
+
+volumes:
+  shopify_app_pg:

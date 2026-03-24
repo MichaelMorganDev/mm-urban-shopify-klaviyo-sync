@@ -24,3 +24,7 @@ export function getKlaviyoPropertyName(
 ): string | undefined {
   return SHOPIFY_METAFIELD_TO_KLAVIYO_PROPERTY[`${namespace}:${key}`];
 }
+
+export function getAllMappedShopifyMetafieldKeys(): string[] {
+  return Object.keys(SHOPIFY_METAFIELD_TO_KLAVIYO_PROPERTY);
+}

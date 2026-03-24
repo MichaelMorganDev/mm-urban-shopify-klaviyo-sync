@@ -1,6 +1,9 @@
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { authenticate, unauthenticated } from "../shopify.server";
-import { getKlaviyoPropertyName } from "../lib/klaviyoPropertyMap";
+import {
+  getAllMappedShopifyMetafieldKeys,
+  getKlaviyoPropertyName,
+} from "../lib/klaviyoPropertyMap";
 
 type AdminLike = {
   graphql: (
@@ -22,6 +25,7 @@ const SILENT_UNMAPPED_KLAVIYO_KEYS = new Set([
   "Name",
   "Store_ID",
 ]);
+const MAPPED_SHOPIFY_KEYS = getAllMappedShopifyMetafieldKeys();
 
 type MetafieldInPayload = {
   namespace?: string;
@@ -400,6 +404,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const setProperties: Record<string, string> = {};
   const unsetProperties: string[] = [];
+  const seenMappedKeys = new Set<string>();
 
   for (const mf of metafields) {
     const namespace = mf.namespace ?? "";
@@ -422,6 +427,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       );
       continue;
     }
+    seenMappedKeys.add(`${namespace}:${key}`);
 
     const raw = mf.value === null || mf.value === undefined ? "" : String(mf.value);
     if (raw.trim().length === 0) {
@@ -429,6 +435,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     } else {
       setProperties[propertyName] = raw;
     }
+  }
+
+  for (const mappedKey of MAPPED_SHOPIFY_KEYS) {
+    if (seenMappedKeys.has(mappedKey)) {
+      continue;
+    }
+    const [namespace, key] = mappedKey.split(":");
+    if (!namespace || !key) {
+      continue;
+    }
+    if (!ALLOWED_NAMESPACES.has(namespace)) {
+      continue;
+    }
+    const propertyName = getKlaviyoPropertyName(namespace, key);
+    if (!propertyName) {
+      continue;
+    }
+    if (setProperties[propertyName] !== undefined) {
+      continue;
+    }
+    unsetProperties.push(propertyName);
   }
 
   await patchKlaviyoProfileProperties({

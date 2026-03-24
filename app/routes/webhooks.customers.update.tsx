@@ -196,18 +196,32 @@ async function patchKlaviyoProfileProperty(params: {
   const { shop, profileId, propertyName, rawValue, apiKey } = params;
   const propertyValue =
     rawValue === null || rawValue === undefined ? "" : String(rawValue);
+  const shouldUnset = propertyValue.trim().length === 0;
 
-  const body = {
+  const body: Record<string, unknown> = {
     data: {
-      type: "profile" as const,
+      type: "profile",
       id: profileId,
-      attributes: {
-        properties: {
-          [propertyName]: propertyValue,
-        },
-      },
+      attributes: shouldUnset
+        ? {}
+        : {
+            properties: {
+              [propertyName]: propertyValue,
+            },
+          },
+      ...(shouldUnset
+        ? {
+            meta: {
+              patch_properties: {
+                unset: [propertyName],
+              },
+            },
+          }
+        : {}),
     },
   };
+
+  const action = shouldUnset ? "Unset" : "Updated";
 
   const klaviyoRes = await fetch(
     `https://a.klaviyo.com/api/profiles/${encodeURIComponent(profileId)}/`,
@@ -226,14 +240,14 @@ async function patchKlaviyoProfileProperty(params: {
   if (!klaviyoRes.ok) {
     const text = await klaviyoRes.text();
     console.error(
-      `[klaviyo-sync] Klaviyo PATCH failed status=${klaviyoRes.status} shop=${shop} property="${propertyName}"`,
+      `[klaviyo-sync] Klaviyo PATCH failed status=${klaviyoRes.status} shop=${shop} property="${propertyName}" action=${action.toLowerCase()}`,
       text,
     );
     return false;
   }
 
   console.log(
-    `[klaviyo-sync] Updated Klaviyo profile property="${propertyName}" shop=${shop}`,
+    `[klaviyo-sync] ${action} Klaviyo profile property="${propertyName}" shop=${shop}`,
   );
   return true;
 }

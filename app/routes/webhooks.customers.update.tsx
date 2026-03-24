@@ -27,6 +27,14 @@ const SILENT_UNMAPPED_KLAVIYO_KEYS = new Set([
   "Name",
   "Store_ID",
 ]);
+const SILENT_UNMAPPED_COUNTERPOINT_KEYS = new Set([
+  "first_sale_date",
+  "last_sale",
+  "name",
+  "phone_number",
+  "store_id",
+  "email",
+]);
 const MAPPED_SHOPIFY_KEYS = getAllMappedShopifyMetafieldKeys();
 
 type MetafieldInPayload = {
@@ -423,6 +431,12 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       if (
         namespace === "klaviyo" &&
         SILENT_UNMAPPED_KLAVIYO_KEYS.has(key)
+      ) {
+        continue;
+      }
+      if (
+        namespace === "counterpoint" &&
+        SILENT_UNMAPPED_COUNTERPOINT_KEYS.has(key)
       ) {
         continue;
       }
